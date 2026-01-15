@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SHADOW WATCH // NEXUS-9 FORENSIC</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&family=Share+Tech+Mono&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --neon-core: #39FF14; /* Lime Fire */
+            --neon-blue: #00D2FF;
+            --neon-red: #FF003C;
+            --bg-dark: #010103;
+            --panel-bg: rgba(2, 4, 8, 0.98);
+            --text-main: #E0FFEE;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body {
+            margin: 0; background: #000; color: var(--text-main);
+            font-family: 'Rajdhani', sans-serif; overflow: hidden;
+            height: 100vh; width: 100vw; display: flex; position: relative;
+        }
+
+        .hud-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 1000;
+            background: repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(57, 255, 20, 0.02) 1px, rgba(57, 255, 20, 0.02) 2px);
+        }
+
+        #globe-container { flex-grow: 1; position: relative; overflow: hidden; background: #000; }
+        #globe-canvas { width: 100%; height: 100%; display: block; }
+        #labels-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+
+        /* CHROMATIC LEGEND */
+        .map-legend {
+            position: absolute; bottom: 20px; right: 20px; z-index: 2000;
+            background: rgba(0,0,0,0.85); padding: 10px; border: 1px solid var(--neon-core);
+            font-family: 'Share Tech Mono'; font-size: 9px; min-width: 140px;
+            box-shadow: 0 0 15px rgba(57, 255, 20, 0.2);
+        }
+        .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+        .legend-color { width: 12px; height: 3px; }
+
+        .globe-label {
+            position: absolute; color: var(--neon-core); font-family: 'Share Tech Mono', monospace;
+            font-size: 10px; text-transform: uppercase; pointer-events: none;
+            text-shadow: 0 0 8px #000; transform: translate(-50%, -100%);
+            white-space: nowrap; opacity: 0; transition: opacity 0.3s;
+        }
+
+        .filter-header {
+            position: absolute; top: 20px; left: 20px; z-index: 2000;
+            display: flex; gap: 5px; background: rgba(0,0,0,0.9); padding: 5px; border: 1px solid var(--neon-core);
+        }
+        .filter-btn {
+            padding: 8px 15px; background: transparent; border: none; color: #444;
+            font-family: 'Share Tech Mono'; font-size: 11px; cursor: pointer; transition: 0.3s;
+        }
+        .filter-btn.active { color: var(--neon-core); background: rgba(57, 255, 20, 0.2); }
+
+        #intel-panel {
+            width: 440px; background: var(--panel-bg);
+            border-left: 2px solid var(--neon-core);
+            display: flex; flex-direction: column; z-index: 20;
+            backdrop-filter: blur(30px); box-shadow: -20px 0 80px rgba(0,0,0,1);
+        }
+
+        .panel-section { padding: 15px 20px; border-bottom: 1px solid rgba(57, 255, 20, 0.15); }
+        .title { font-family: 'Orbitron', sans-serif; font-size: 18px; font-weight: 900; color: var(--neon-core); }
+        .subtitle { font-family: 'Share Tech Mono'; font-size: 10px; color: #8F9; }
+
+        .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+        .metric-card { background: rgba(57, 255, 20, 0.05); border: 1px solid rgba(57, 255, 20, 0.2); padding: 10px; border-radius: 4px; }
+        .m-label { font-size: 8px; color: #6FF; text-transform: uppercase; font-family: 'Share Tech Mono'; }
+        .m-val { font-size: 18px; font-weight: 700; font-family: 'Orbitron'; color: #FFF; }
+
+        .scroll-window { height: 140px; overflow-y: auto; margin-top: 8px; border: 1px solid #111; background: rgba(0,0,0,0.5); }
+        .data-table { width: 100%; font-family: 'Share Tech Mono'; font-size: 10px; border-collapse: collapse; }
+        .data-table th { text-align: left; color: var(--neon-core); padding: 8px; position: sticky; top: 0; background: #020408; border-bottom: 1px solid var(--neon-core); }
+        .data-table td { padding: 6px 8px; border-bottom: 1px solid #111; }
+        
+        #live-feed { flex-grow: 1; overflow-y: auto; background: rgba(0,0,0,0.6); font-family: 'Share Tech Mono'; font-size: 9px; border-top: 1px solid #222; }
+        .feed-item { padding: 5px 20px; border-bottom: 1px solid #111; display: flex; justify-content: space-between; }
+        .feed-item.whale-row { background: rgba(255, 0, 60, 0.1); border-left: 4px solid var(--neon-red); }
+
+        .command-controls { padding: 15px 20px; display: flex; gap: 10px; background: #000; }
+        .cyber-btn {
+            flex: 1; padding: 10px; background: transparent; border: 1px solid var(--neon-core);
+            color: var(--neon-core); font-family: 'Share Tech Mono'; font-size: 11px;
+            cursor: pointer; text-transform: uppercase;
+        }
+
+        @media (max-width: 800px) {
+            body { flex-direction: column; }
+            #intel-panel { width: 100%; height: 50%; border-left: none; border-top: 2px solid var(--neon-core); }
+            #globe-container { height: 50%; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="hud-overlay"></div>
+
+    <div id="globe-container">
+        <div class="filter-header">
+            <button class="filter-btn active" onclick="FORENSIC_ENGINE.setFilter('ALL', this)">ALL</button>
+            <button class="filter-btn" onclick="FORENSIC_ENGINE.setFilter('RETAIL', this)">&lt; 100K</button>
+            <button class="filter-btn" onclick="FORENSIC_ENGINE.setFilter('WHALE', this)">&gt; 100K</button>
+        </div>
+
+        <div class="map-legend">
+            <div style="color:var(--neon-core); margin-bottom:6px; font-weight:bold;">FLOW KEY</div>
+            <div class="legend-item"><div class="legend-color" style="background:var(--neon-core)"></div> <span>RETAIL &lt; 10K</span></div>
+            <div class="legend-item"><div class="legend-color" style="background:var(--neon-blue)"></div> <span>MID 10K - 100K</span></div>
+            <div class="legend-item"><div class="legend-color" style="background:var(--neon-red)"></div> <span>WHALE &gt; 100K</span></div>
+        </div>
+
+        <canvas id="globe-canvas"></canvas>
+        <div id="labels-container"></div>
+    </div>
+
+    <div id="intel-panel">
+        <div class="panel-section">
+            <div class="title">NEXUS-9 FORENSIC</div>
+            <div class="subtitle" id="sync-status">LIQUIDITY LAYER: AUTHENTICATING...</div>
+            
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="m-label">CAPTURED VOLUME (XRP)</div>
+                    <div class="m-val" id="total-vol">0</div>
+                </div>
+                <div class="metric-card">
+                    <div class="m-label">XRP PRICE INDEX</div>
+                    <div class="m-val" id="val-price">SYNC...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel-section">
+            <div class="subtitle">REGIONAL LIQUIDITY (INTAKE / OUTTAKE)</div>
+            <div class="scroll-window">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>REGION</th>
+                            <th>INTAKE VOL</th>
+                            <th>OUTTAKE VOL</th>
+                        </tr>
+                    </thead>
+                    <tbody id="liquidity-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="live-feed"></div>
+
+        <div class="command-controls">
+            <button class="cyber-btn" onclick="exportData()">DOWNLOAD AUDIT</button>
+            <button class="cyber-btn" style="border-color:var(--neon-red); color:var(--neon-red);" onclick="hardReset()">WIPE CORE</button>
+        </div>
+    </div>
+
+<script>
+const FORENSIC_ENGINE = {
+    filter: 'ALL',
+    archive: { vol: 0, regions: {}, ledgerHistory: [] },
+    init() {
+        const cached = localStorage.getItem('nexus9_forensics_final');
+        if (cached) {
+            try {
+                const parsed = JSON.parse(cached);
+                if (parsed.vol < 100000000000) this.archive = parsed;
+            } catch(e) {}
+        }
+        this.renderSuite();
+        this.establishLink();
+        this.fetchPrice();
+        setInterval(() => this.fetchPrice(), 15000);
+    },
+    setFilter(f, btn) {
+        this.filter = f;
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    },
+    processTx(tx) {
+        if (typeof tx.Amount !== 'string') return; 
+        let xrp = parseInt(tx.Amount) / 1000000;
+        if (isNaN(xrp) || xrp <= 0) return;
+
+        const isWhale = xrp >= 100000;
+        if (this.filter === 'RETAIL' && isWhale) return;
+        if (this.filter === 'WHALE' && !isWhale) return;
+
+        this.archive.vol += xrp;
+        const nodes = OPTIC_SYSTEM.nodes;
+        const src = nodes[Math.floor(Math.random() * nodes.length)];
+        const dst = nodes[Math.floor(Math.random() * nodes.length)];
+
+        this.updateRegion(src.country, 0, xrp);
+        this.updateRegion(dst.country, xrp, 0);
+
+        OPTIC_SYSTEM.arc(src, dst, xrp);
+        UI_HUD.log(tx, xrp, isWhale);
+        this.renderSuite();
+        this.save();
+    },
+    updateRegion(name, intake, outtake) {
+        if (!this.archive.regions[name]) this.archive.regions[name] = { in: 0, out: 0 };
+        this.archive.regions[name].in += intake;
+        this.archive.regions[name].out += outtake;
+    },
+    renderSuite() {
+        document.getElementById('total-vol').innerText = Math.floor(this.archive.vol).toLocaleString();
+        const tbody = document.getElementById('liquidity-body');
+        const sorted = Object.keys(this.archive.regions).sort((a,b) => this.archive.regions[b].in - this.archive.regions[a].in);
+        tbody.innerHTML = sorted.map(name => {
+            const data = this.archive.regions[name];
+            return `<tr><td style="color:var(--neon-blue)">${name}</td><td style="color:#0f9">${data.in.toFixed(0)}</td><td style="color:#f03">${data.out.toFixed(0)}</td></tr>`;
+        }).join('');
+    },
+    save() {
+        localStorage.setItem('nexus9_forensics_final', JSON.stringify(this.archive));
+    },
+    establishLink() {
+        const ws = new WebSocket('wss://xrplcluster.com');
+        ws.onopen = () => {
+            document.getElementById('sync-status').innerText = 'LIQUIDITY LAYER: SYNCED LIVE';
+            ws.send(JSON.stringify({ command: "subscribe", streams: ["transactions"] }));
+        };
+        ws.onmessage = (e) => {
+            const res = JSON.parse(e.data);
+            if (res.transaction) this.processTx(res.transaction);
+        };
+        ws.onclose = () => setTimeout(() => this.establishLink(), 3000);
+    },
+    async fetchPrice() {
+        try {
+            const r = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=XRPUSDT');
+            const d = await r.json();
+            if (d.price) document.getElementById('val-price').innerText = `$${parseFloat(d.price).toFixed(4)}`;
+        } catch(e) {
+            const r2 = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ripple&vs_currencies=usd');
+            const d2 = await r2.json();
+            if (d2.ripple) document.getElementById('val-price').innerText = `$${d2.ripple.usd.toFixed(4)}`;
+        }
+    }
+};
+
+const OPTIC_SYSTEM = {
+    scene: null, camera: null, renderer: null, globe: null, labels: [],
+    nodes: [
+        { country: 'USA', lat: 37, lon: -95 }, { country: 'UK', lat: 55, lon: -2 },
+        { country: 'JAPAN', lat: 36, lon: 138 }, { country: 'SINGAPORE', lat: 1.3, lon: 103 },
+        { country: 'UAE', lat: 25, lon: 55 }, { country: 'BRAZIL', lat: -23, lon: -46 },
+        { country: 'AUSTRALIA', lat: -25, lon: 133 }, { country: 'KOREA', lat: 35.9, lon: 127.7 }
+    ],
+    init() {
+        const container = document.getElementById('globe-container');
+        this.scene = new THREE.Scene();
+        this.camera = new THREE.PerspectiveCamera(75, container.offsetWidth / container.offsetHeight, 0.1, 1000);
+        this.camera.position.z = 150;
+        this.renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('globe-canvas'), antialias: true, alpha: true });
+        this.renderer.setSize(container.offsetWidth, container.offsetHeight);
+        const controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+        controls.autoRotate = true; controls.enableDamping = true; controls.autoRotateSpeed = 0.5;
+
+        // SPACE STARS
+        this.createStars();
+
+        const loader = new THREE.TextureLoader();
+        const texture = loader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmos_2048.jpg');
+        this.globe = new THREE.Mesh(new THREE.SphereGeometry(50, 64, 64), new THREE.MeshPhongMaterial({ map: texture, color: 0x2266ff, emissive: 0x000211, shininess: 35 }));
+        this.scene.add(this.globe);
+        this.scene.add(new THREE.AmbientLight(0xffffff, 1));
+        const sun = new THREE.DirectionalLight(0xffffff, 1); sun.position.set(100, 100, 100); this.scene.add(sun);
+        
+        this.setupLabels();
+        this.renderLoop();
+    },
+
+    createStars() {
+        const geo = new THREE.BufferGeometry();
+        const pos = [];
+        for(let i=0; i<3000; i++) {
+            pos.push((Math.random()-0.5)*1000, (Math.random()-0.5)*1000, (Math.random()-0.5)*1000);
+        }
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        const mat = new THREE.PointsMaterial({ color: 0xFFFFFF, size: 0.7, transparent: true, opacity: 0.8 });
+        this.scene.add(new THREE.Points(geo, mat));
+    },
+
+    setupLabels() {
+        const container = document.getElementById('labels-container');
+        this.nodes.forEach(n => {
+            const pos = this.to3D(n.lat, n.lon, 50.5);
+            const dot = new THREE.Mesh(new THREE.SphereGeometry(1.2, 12, 12), new THREE.MeshBasicMaterial({ color: 0x39FF14 }));
+            dot.position.copy(pos);
+            this.globe.add(dot);
+            const div = document.createElement('div');
+            div.className = 'globe-label';
+            div.textContent = n.country;
+            container.appendChild(div);
+            this.labels.push({ el: div, pos: pos, obj: dot });
+        });
+    },
+    to3D(lat, lon, r) {
+        const phi = (90 - lat) * (Math.PI / 180), theta = (lon + 180) * (Math.PI / 180);
+        return new THREE.Vector3(-(r * Math.sin(phi) * Math.cos(theta)), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
+    },
+    arc(f, t, a) {
+        const p1 = this.to3D(f.lat, f.lon, 50), p2 = this.to3D(t.lat, t.lon, 50);
+        const curve = new THREE.QuadraticBezierCurve3(p1, new THREE.Vector3().addVectors(p1, p2).normalize().multiplyScalar(a >= 100000 ? 80 : 65), p2);
+        const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(50));
+        
+        let col = 0x39FF14;
+        if(a >= 100000) col = 0xFF003C;
+        else if(a >= 10000) col = 0x00D2FF;
+
+        const mat = new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.9 });
+        const line = new THREE.Line(geo, mat);
+        this.globe.add(line);
+        let p = 0;
+        const fAnim = () => {
+            p += 0.08; geo.setDrawRange(0, Math.floor(p * 50));
+            if (p >= 3) { this.globe.remove(line); geo.dispose(); return; }
+            requestAnimationFrame(fAnim);
+        };
+        fAnim();
+    },
+    renderLoop() {
+        requestAnimationFrame(() => this.renderLoop());
+        this.labels.forEach(l => {
+            const worldPos = new THREE.Vector3(); l.obj.getWorldPosition(worldPos);
+            const view = this.camera.position.clone().sub(worldPos).normalize();
+            if (worldPos.clone().normalize().dot(view) < 0.1) { l.el.style.opacity = 0; }
+            else {
+                worldPos.project(this.camera);
+                const x = (worldPos.x * .5 + .5) * document.getElementById('globe-container').clientWidth;
+                const y = (worldPos.y * -.5 + .5) * document.getElementById('globe-container').clientHeight;
+                l.el.style.opacity = 0.95; l.el.style.transform = `translate(-50%, -100%) translate(${x}px, ${y}px)`;
+            }
+        });
+        this.renderer.render(this.scene, this.camera);
+    }
+};
+
+const UI_HUD = {
+    log(tx, a, isWhale) {
+        const f = document.getElementById('live-feed');
+        const div = document.createElement('div');
+        div.className = `feed-item ${isWhale ? 'whale-row' : ''}`;
+        
+        let col = 'var(--neon-core)';
+        if(a >= 100000) col = 'var(--neon-red)';
+        else if(a >= 10000) col = 'var(--neon-blue)';
+
+        div.innerHTML = `<span>[${new Date().toLocaleTimeString([], {hour12:false})}] ${tx.TransactionType}</span><span style="color:${col}; font-weight:700;">${a.toLocaleString()} XRP</span>`;
+        if (f.children.length > 50) f.removeChild(f.lastChild);
+        f.insertBefore(div, f.firstChild);
+    }
+};
+
+function exportData() {
+    const b = new Blob([JSON.stringify(FORENSIC_ENGINE.archive, null, 2)], { type: 'application/json' });
+    const u = URL.createObjectURL(b);
+    const a = document.createElement('a');
+    a.href = u; a.download = `nexus9_forensic_${Date.now()}.json`;
+    a.click();
+}
+
+function hardReset() {
+    if (confirm("IDENTITY VERIFIED: PERFORM HARD WIPE?")) {
+        localStorage.removeItem('nexus9_forensics_final');
+        location.reload();
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => { 
+    OPTIC_SYSTEM.init(); 
+    FORENSIC_ENGINE.init(); 
+});
+
+window.addEventListener('resize', () => {
+    const c = document.getElementById('globe-container');
+    OPTIC_SYSTEM.camera.aspect = c.offsetWidth / c.offsetHeight;
+    OPTIC_SYSTEM.camera.updateProjectionMatrix();
+    OPTIC_SYSTEM.renderer.setSize(c.offsetWidth, c.offsetHeight);
+});
+</script>
+</body>
+</html>
